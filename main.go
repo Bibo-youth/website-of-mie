@@ -1,51 +1,59 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 )
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "ysy try!")
-	w.Write([]byte("Hello, World!"))
+// 定义一个简单的页面模板
+const tmpl = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ysy</title>
+</head>
+<body>
+    <h1>Welcome to My Go Website</h1>
+    <p>{{.Message}}</p>
+</body>
+</html>
+`
+
+// 页面数据结构体
+type PageData struct {
+	Message string
+}
+
+// 渲染模板的函数
+func renderTemplate(w http.ResponseWriter, tmplStr string, data PageData) {
+	tmpl, err := template.New("webpage").Parse(tmplStr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// 处理根路径请求的函数
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	data := PageData{
+		Message: "ysy",
+	}
+	renderTemplate(w, tmpl, data)
 }
 
 func main() {
-	// 创建一个HTTP服务器
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: http.HandlerFunc(helloHandler),
+	http.HandleFunc("/home", rootHandler)
+	fmt.Println("Starting server at :1026")
+	if err := http.ListenAndServe(":1026", nil); err != nil {
+		log.Fatalf("Could not start server: %s\n", err.Error())
 	}
-	fmt.Println("Starting server at :8080")
-
-	// 启动一个goroutine来运行服务器
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("ListenAndServe: %v", err)
-		}
-	}()
-
-	// 创建一个通道来监听系统信号
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	// 阻塞，直到接收到一个信号
-	<-quit
-	log.Println("Shutting down server...")
-
-	// 创建一个上下文，设置超时时间为5秒
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// 优雅地关闭服务器
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server Shutdown: %v", err)
-	}
-	log.Println("Server gracefully stopped")
 }
