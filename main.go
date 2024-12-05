@@ -14,7 +14,7 @@ const tmpl = `
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ysy</title>
+    <title>mie</title>
 </head>
 <body>
     <h1>Welcome to My Go Website</h1>
@@ -45,7 +45,7 @@ func renderTemplate(w http.ResponseWriter, tmplStr string, data PageData) {
 // 处理根路径请求的函数
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	data := PageData{
-		Message: "ysy",
+		Message: "mie",
 	}
 	renderTemplate(w, tmpl, data)
 }
