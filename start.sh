@@ -1,2 +1,1 @@
-
-./website-of-mie
+./buy_ticket
