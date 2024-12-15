@@ -112,8 +112,8 @@ func main() {
 	}
 
 	// 登录
-	username := "18510986700"
-	password := "ysyyang0402yy"
+	username := "1111"
+	password := "111111"
 	if err := login12306(client, username, password); err != nil {
 		fmt.Println("Login Error:", err)
 		return
