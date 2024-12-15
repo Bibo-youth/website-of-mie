@@ -1,135 +1,127 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
-	"github.com/go-resty/resty/v2"
-	"io"
+	"io/ioutil"
 	"net/http"
-	"time"
+	"net/http/cookiejar"
+	"net/url"
+	"strings"
 )
 
-// 模拟登录
-func login(client *resty.Client, username, password string) error {
-	loginURL := "https://example.com/login" // 替换为实际登录的 URL
-	payload := map[string]string{
-		"username": username,
-		"password": password,
-	}
-
-	resp, err := client.R().
-		SetFormData(payload).
-		Post(loginURL)
+// 初始化一个带 Cookie 管理的 HTTP 客户端
+func createClient() (*http.Client, error) {
+	// 创建 CookieJar
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to create cookie jar: %v", err)
 	}
 
-	if resp.StatusCode() != 200 {
-		return fmt.Errorf("login failed with status %d", resp.StatusCode())
+	// 创建 HTTP 客户端并绑定 CookieJar
+	client := &http.Client{
+		Jar: jar,
 	}
+	return client, nil
+}
 
-	// 检查是否登录成功
-	document, err := goquery.NewDocumentFromReader(resp.RawResponse.Body)
+// 登录 12306 并保存 Cookie
+func login12306(client *http.Client, username, password string) error {
+	loginURL := "https://kyfw.12306.cn/passport/web/login"
+	// 登录表单数据
+	data := url.Values{}
+	data.Set("username", username)
+	data.Set("password", password)
+	data.Set("checkMode", "0")
+	data.Set("randCode", "12345")
+	data.Set("appid", "otn") // 12306 的登录 API 需要 appid 参数
+
+	req, err := http.NewRequest("POST", loginURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create request: %v", err)
 	}
-	if document.Find(".login-success").Length() == 0 {
-		return fmt.Errorf("login failed")
-	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	// 发起请求
+	resp, err := client.PostForm(loginURL, data)
+	if err != nil {
+		return fmt.Errorf("login request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 检查响应
+	body, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("login failed: %s", string(body))
+	}
+	fmt.Println("Login successful. Cookies stored in client.", string(body))
+	fmt.Println("############################################")
 	return nil
 }
 
-// 填写预约信息并提交
-func submitReservation(reservationURL string, data map[string]string) error {
-	//resp, err := client.R().
-	//	SetFormData(data).   // 填写表单信息
-	//	Post(reservationURL) // 提交预约请求
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//if resp.StatusCode() != 200 {
-	//	return fmt.Errorf("failed to submit reservation, status code: %d", resp.StatusCode())
-	//}
-	//
-	//// 解析返回的 HTML 判断是否提交成功
-	//document, err := goquery.NewDocumentFromReader(resp.RawResponse.Body)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//// 根据返回的 HTML 判断是否预约成功（此处假设通过某个标识来判断）
-	//if document.Find(".reservation-success").Length() == 0 {
-	//	return fmt.Errorf("reservation submission failed")
-	//}
-	//
-	//fmt.Println("Reservation submitted successfully!")
+// 带 Cookie 的请求示例
+func queryTickets(client *http.Client) error {
+	queryURL := "https://kyfw.12306.cn/otn/leftTicket/queryO"
+	cookieURL := "https://kyfw.12306.cn/otn/view/index.html"
 
-	jsonPayload, err := json.Marshal(data)
+	// 查询参数
+	params := url.Values{}
+	params.Set("leftTicketDTO.train_date", "2024-12-15") // 车票日期
+	params.Set("leftTicketDTO.from_station", "SHH")      // 上海
+	params.Set("leftTicketDTO.to_station", "BJP")        // 北京
+	params.Set("purpose_codes", "ADULT")                 // 成人票
+
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s?%s", queryURL, params.Encode()), nil)
 	if err != nil {
-		fmt.Printf("Error marshaling JSON for callback: %v", err)
+		return fmt.Errorf("failed to create request: %v", err)
 	}
-
-	req, err := http.NewRequest("POST", reservationURL, bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		fmt.Printf("Error creating callback request: %v", err)
+	parsedURL, _ := url.Parse(cookieURL)
+	cookies := client.Jar.Cookies(parsedURL)
+	var builder strings.Builder
+	last := len(cookies) - 1
+	fmt.Println("Stored Cookies:")
+	for i, cookie := range cookies {
+		fmt.Println("cookie.Name: : cookie.Value:\n", cookie.Name, cookie.Value)
+		str := cookie.Name + "=" + cookie.Value
+		builder.WriteString(str)
+		// 如果不是最后一个元素，则添加分号
+		if i != last {
+			builder.WriteByte(';')
+		}
 	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	client := &http.Client{}
+	result := builder.String()
+	fmt.Println("result:", result)
+	req.Header.Set("Cookie", result)
+	// 发起请求
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error making callback request: %v", err)
+		return fmt.Errorf("ticket query failed: %v", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
+	defer resp.Body.Close()
 
-		}
-	}(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Error: server returned status code %v", resp.StatusCode)
-		return err
-	}
-	fmt.Printf("response header %v", resp.Header)
-	fmt.Printf("response body %v", resp.Body)
+	body, _ := ioutil.ReadAll(resp.Body)
+	fmt.Printf("Query Response: %s\n", string(body))
 	return nil
 }
 
 func main() {
-	// 登录信息
-	username := "your-username"
-	id := "1234568"
-
-	//// 登录
-	//err := login(client, username, id)
-	//if err != nil {
-	//	log.Fatalf("Login failed: %v", err)
-	//}
-
-	// 预约信息
-	reservationURL := "https://eapply.abchina.com/coin/coin/CoinIssuesDistribution?typeid=202307"
-	reservationData := map[string]string{
-		"name":  username,
-		"id":    id,
-		"phone": "1234567890",
-		"date":  "2024-12-25",
+	// 创建带 Cookie 管理的客户端
+	client, err := createClient()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
 	}
 
-	// 启动多个 goroutine 来并发提交预约请求
-	for i := 0; i < 5; i++ {
-		go func() {
-			err := submitReservation(reservationURL, reservationData)
-			if err != nil {
-				fmt.Printf("Failed to submit reservation: %v", err)
-			}
-		}()
+	// 登录
+	username := "18510986700"
+	password := "ysyyang0402yy"
+	if err := login12306(client, username, password); err != nil {
+		fmt.Println("Login Error:", err)
+		return
 	}
 
-	// 阻塞主线程，确保所有 goroutine 执行完毕
-	time.Sleep(5 * time.Second)
+	// 查询车票
+	if err := queryTickets(client); err != nil {
+		fmt.Println("Query Error:", err)
+		return
+	}
 }
